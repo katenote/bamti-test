@@ -9,6 +9,7 @@ const STUDENTS = [
   {
     id: "10101",
     name: "김코딩",
+    alias: "학생 A",
     photo: "assets/10101_김코딩.jpg",
     grades: {
       "정보 수행평가": "A",
@@ -26,6 +27,7 @@ const STUDENTS = [
   {
     id: "10102",
     name: "박개발",
+    alias: "학생 B",
     photo: "assets/10102_박개발.jpg",
     grades: {
       "정보 수행평가": "B+",
@@ -43,6 +45,7 @@ const STUDENTS = [
   {
     id: "10103",
     name: "이교사",
+    alias: "학생 C",
     photo: "assets/10103_이교사.jpg",
     grades: {
       "정보 수행평가": "A-",
@@ -69,6 +72,7 @@ const studentView = document.querySelector("#studentView");
 const adminView = document.querySelector("#adminView");
 
 let currentUser = null;
+let selectedCounselingStudentId = null;
 
 loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -98,6 +102,7 @@ loginForm.addEventListener("submit", (event) => {
 
 logoutButton.addEventListener("click", () => {
   currentUser = null;
+  selectedCounselingStudentId = null;
   showOnly(loginView);
   logoutButton.classList.add("hidden");
   userIdInput.focus();
@@ -140,18 +145,12 @@ function renderStudentPage(student) {
       <div class="content-stack">
         ${renderGrades(student.grades, false, `gradesTitle-${student.id}`)}
         ${renderTraits(student)}
-        ${renderChatbot()}
       </div>
     </div>
   `;
 
   showOnly(studentView);
   logoutButton.classList.remove("hidden");
-
-  const chatForm = document.getElementById("chatForm");
-  if (chatForm) {
-    chatForm.addEventListener("submit", (e) => handleChatSubmit(e, student));
-  }
 }
 
 function renderAdminDashboard() {
@@ -167,10 +166,15 @@ function renderAdminDashboard() {
     <section class="admin-grid" aria-label="전체 학생 정보">
       ${STUDENTS.map(renderStudentCard).join("")}
     </section>
+
+    <div id="counselingPanelContainer" class="counseling-panel-wrapper">
+      ${renderCounselingPanel()}
+    </div>
   `;
 
   showOnly(adminView);
   logoutButton.classList.remove("hidden");
+  attachCounselingEvents();
 }
 
 function renderStudentCard(student) {
@@ -182,9 +186,141 @@ function renderStudentCard(student) {
         <p class="student-number">학번 ${student.id}</p>
         ${renderGrades(student.grades, true, `gradesTitle-${student.id}`)}
         ${renderTraits(student)}
+        <button class="primary-button" style="width:100%; margin-top: 16px;" onclick="selectStudentForCounseling('${student.id}')">상담 전략 요청</button>
       </div>
     </article>
   `;
+}
+
+window.selectStudentForCounseling = function(id) {
+  selectedCounselingStudentId = id;
+  const container = document.getElementById("counselingPanelContainer");
+  if (container) {
+    container.innerHTML = renderCounselingPanel();
+    attachCounselingEvents();
+    container.scrollIntoView({ behavior: 'smooth' });
+  }
+};
+
+function renderCounselingPanel() {
+  if (!selectedCounselingStudentId) {
+    return `
+      <section class="counseling-panel empty">
+        <p style="text-align:center; padding:40px; color:var(--muted);">학생 카드의 "상담 전략 요청" 버튼을 눌러주세요.</p>
+      </section>
+    `;
+  }
+
+  const student = STUDENTS.find(s => s.id === selectedCounselingStudentId);
+  const gradeSummary = Object.entries(student.grades).map(([k, v]) => `${k}: ${v}`).join(", ");
+  const learningTraits = student.traits.join(" ") + " " + student.teacherMemo;
+  
+  const sampleData = {
+    studentAlias: student.alias,
+    gradeSummary,
+    learningTraits,
+    teacherConcern: "여기에 작성한 고민 내용이 들어갑니다."
+  };
+
+  return `
+    <section class="counseling-panel">
+      <h3>🤖 AI 학생 상담 전략 도우미</h3>
+      <div class="counseling-student-info">
+        <strong>선택된 학생:</strong> ${student.name} (${student.id}) <br/>
+        <small style="color: var(--muted);">※ Gemini 전송용 익명화 이름: ${student.alias}</small>
+      </div>
+
+      <div class="counseling-form">
+        <label for="teacherConcernInput">교사 고민 입력</label>
+        <textarea id="teacherConcernInput" class="counseling-textarea" rows="3" placeholder="예) 수업 참여는 좋은데 평가 결과가 낮습니다. 어떻게 상담하면 좋을까요?"></textarea>
+      </div>
+
+      <div class="preview-area">
+        <p><strong>전송 데이터 미리보기 (개인정보 무포함)</strong></p>
+        <pre id="previewJson">${JSON.stringify(sampleData, null, 2)}</pre>
+      </div>
+
+      <button id="requestCounselingBtn" class="primary-button">AI 상담 전략 받기</button>
+
+      <div id="counselingResultArea" class="counseling-result hidden"></div>
+
+      <p class="disclaimer">
+        AI 상담 전략은 참고용입니다. 최종 판단과 실제 상담은 교사가 학생의 상황을 종합적으로 고려하여 진행해야 합니다.
+      </p>
+    </section>
+  `;
+}
+
+function attachCounselingEvents() {
+  const concernInput = document.getElementById("teacherConcernInput");
+  const previewJson = document.getElementById("previewJson");
+  const requestBtn = document.getElementById("requestCounselingBtn");
+  const resultArea = document.getElementById("counselingResultArea");
+
+  if (!concernInput || !requestBtn) return;
+
+  const student = STUDENTS.find(s => s.id === selectedCounselingStudentId);
+  const gradeSummary = Object.entries(student.grades).map(([k, v]) => `${k}: ${v}`).join(", ");
+  const learningTraits = student.traits.join(" ") + " " + student.teacherMemo;
+
+  concernInput.addEventListener("input", (e) => {
+    const concern = e.target.value;
+    const data = {
+      studentAlias: student.alias,
+      gradeSummary,
+      learningTraits,
+      teacherConcern: concern || "여기에 작성한 고민 내용이 들어갑니다."
+    };
+    previewJson.textContent = JSON.stringify(data, null, 2);
+  });
+
+  requestBtn.addEventListener("click", async () => {
+    const concern = concernInput.value.trim();
+    if (!concern) {
+      alert("상담 고민을 먼저 입력해주세요.");
+      return;
+    }
+
+    resultArea.classList.remove("hidden");
+    resultArea.innerHTML = "<p>AI가 상담 전략을 생성하는 중입니다...</p>";
+    requestBtn.disabled = true;
+
+    try {
+      const data = {
+        studentAlias: student.alias,
+        gradeSummary,
+        learningTraits,
+        teacherConcern: concern
+      };
+
+      const response = await fetch("/api/gemini-counseling", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        resultArea.innerHTML = `<div class="result-content">${escapeHtml(result.result).replace(/\\n/g, "<br>")}</div>`;
+      } else {
+        resultArea.innerHTML = `<p class="error-text">AI 상담 전략을 불러오지 못했습니다. API 키 또는 Vercel 환경 변수를 확인해주세요. (${result.error || ''})</p>`;
+      }
+    } catch (error) {
+      resultArea.innerHTML = `<p class="error-text">AI 상담 전략을 불러오지 못했습니다. API 키 또는 Vercel 환경 변수를 확인해주세요.</p>`;
+    } finally {
+      requestBtn.disabled = false;
+    }
+  });
+}
+
+function escapeHtml(unsafe) {
+  return unsafe
+       .replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#039;");
 }
 
 function renderGrades(grades, compact = false, headingId = "gradesTitle") {
@@ -216,89 +352,6 @@ function renderTraits(student) {
       </ul>
     </section>
   `;
-}
-
-function renderChatbot() {
-  return `
-    <section class="chat-container">
-      <div class="chat-header">
-        <h3>💬 AI 상담 챗봇</h3>
-      </div>
-      <div class="chat-messages" id="chatMessages">
-        <div class="chat-message ai">안녕하세요! 저는 AI 상담사입니다. 학생의 성적과 특성을 바탕으로 맞춤 상담을 제공합니다. 무엇이든 물어보세요!</div>
-      </div>
-      <form class="chat-input-area" id="chatForm">
-        <input type="text" class="chat-input" id="chatInput" placeholder="질문을 입력하세요..." required autocomplete="off" />
-        <button type="submit" class="chat-send-btn" id="chatSendBtn">전송</button>
-      </form>
-    </section>
-  `;
-}
-
-async function handleChatSubmit(event, student) {
-  event.preventDefault();
-  const apiKeyInput = document.getElementById("apiKeyInput");
-  if (!apiKeyInput || !apiKeyInput.value.trim()) {
-    alert("우측 상단에 Gemini API Key를 먼저 입력해주세요.");
-    return;
-  }
-  const apiKey = apiKeyInput.value.trim();
-
-  const chatInput = document.getElementById("chatInput");
-  const chatMessages = document.getElementById("chatMessages");
-  const sendBtn = document.getElementById("chatSendBtn");
-  const message = chatInput.value.trim();
-
-  if (!message) return;
-
-  // Add user message
-  const userMsgDiv = document.createElement("div");
-  userMsgDiv.className = "chat-message user";
-  userMsgDiv.textContent = message;
-  chatMessages.appendChild(userMsgDiv);
-  
-  chatInput.value = "";
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-  sendBtn.disabled = true;
-
-  const systemPrompt = `당신은 친절하고 전문적인 학생 상담사입니다. 
-다음 학생의 데이터를 참고하여 학생의 진로, 학습 방법, 또는 고민 상담을 진행해주세요.
-- 이름: ${student.name}
-- 성적: ${JSON.stringify(student.grades)}
-- 학습 특성: ${student.traits.join(", ")}
-- 교사 메모: ${student.teacherMemo}`;
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: { text: systemPrompt } },
-        contents: [{ role: "user", parts: [{ text: message }] }]
-      })
-    });
-
-    if (!response.ok) throw new Error("API 요청 실패");
-
-    const data = await response.json();
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 생성하지 못했습니다.";
-
-    const aiMsgDiv = document.createElement("div");
-    aiMsgDiv.className = "chat-message ai";
-    aiMsgDiv.textContent = aiText;
-    chatMessages.appendChild(aiMsgDiv);
-
-  } catch (error) {
-    console.error(error);
-    const errorDiv = document.createElement("div");
-    errorDiv.className = "chat-message ai";
-    errorDiv.style.color = "red";
-    errorDiv.textContent = "오류가 발생했습니다. API 키나 네트워크를 확인해주세요.";
-    chatMessages.appendChild(errorDiv);
-  } finally {
-    sendBtn.disabled = false;
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
 }
 
 showOnly(loginView);
