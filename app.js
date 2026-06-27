@@ -140,12 +140,18 @@ function renderStudentPage(student) {
       <div class="content-stack">
         ${renderGrades(student.grades, false, `gradesTitle-${student.id}`)}
         ${renderTraits(student)}
+        ${renderChatbot()}
       </div>
     </div>
   `;
 
   showOnly(studentView);
   logoutButton.classList.remove("hidden");
+
+  const chatForm = document.getElementById("chatForm");
+  if (chatForm) {
+    chatForm.addEventListener("submit", (e) => handleChatSubmit(e, student));
+  }
 }
 
 function renderAdminDashboard() {
@@ -210,6 +216,89 @@ function renderTraits(student) {
       </ul>
     </section>
   `;
+}
+
+function renderChatbot() {
+  return `
+    <section class="chat-container">
+      <div class="chat-header">
+        <h3>💬 AI 상담 챗봇</h3>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-message ai">안녕하세요! 저는 AI 상담사입니다. 학생의 성적과 특성을 바탕으로 맞춤 상담을 제공합니다. 무엇이든 물어보세요!</div>
+      </div>
+      <form class="chat-input-area" id="chatForm">
+        <input type="text" class="chat-input" id="chatInput" placeholder="질문을 입력하세요..." required autocomplete="off" />
+        <button type="submit" class="chat-send-btn" id="chatSendBtn">전송</button>
+      </form>
+    </section>
+  `;
+}
+
+async function handleChatSubmit(event, student) {
+  event.preventDefault();
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  if (!apiKeyInput || !apiKeyInput.value.trim()) {
+    alert("우측 상단에 Gemini API Key를 먼저 입력해주세요.");
+    return;
+  }
+  const apiKey = apiKeyInput.value.trim();
+
+  const chatInput = document.getElementById("chatInput");
+  const chatMessages = document.getElementById("chatMessages");
+  const sendBtn = document.getElementById("chatSendBtn");
+  const message = chatInput.value.trim();
+
+  if (!message) return;
+
+  // Add user message
+  const userMsgDiv = document.createElement("div");
+  userMsgDiv.className = "chat-message user";
+  userMsgDiv.textContent = message;
+  chatMessages.appendChild(userMsgDiv);
+  
+  chatInput.value = "";
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  sendBtn.disabled = true;
+
+  const systemPrompt = `당신은 친절하고 전문적인 학생 상담사입니다. 
+다음 학생의 데이터를 참고하여 학생의 진로, 학습 방법, 또는 고민 상담을 진행해주세요.
+- 이름: ${student.name}
+- 성적: ${JSON.stringify(student.grades)}
+- 학습 특성: ${student.traits.join(", ")}
+- 교사 메모: ${student.teacherMemo}`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: { text: systemPrompt } },
+        contents: [{ role: "user", parts: [{ text: message }] }]
+      })
+    });
+
+    if (!response.ok) throw new Error("API 요청 실패");
+
+    const data = await response.json();
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 생성하지 못했습니다.";
+
+    const aiMsgDiv = document.createElement("div");
+    aiMsgDiv.className = "chat-message ai";
+    aiMsgDiv.textContent = aiText;
+    chatMessages.appendChild(aiMsgDiv);
+
+  } catch (error) {
+    console.error(error);
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "chat-message ai";
+    errorDiv.style.color = "red";
+    errorDiv.textContent = "오류가 발생했습니다. API 키나 네트워크를 확인해주세요.";
+    chatMessages.appendChild(errorDiv);
+  } finally {
+    sendBtn.disabled = false;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
 }
 
 showOnly(loginView);
